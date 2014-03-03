@@ -64,7 +64,7 @@
 
 #include <trajectory_msgs/JointTrajectory.h>
 #include <control_msgs/PointHeadAction.h>
-#include <pr2_controllers_msgs/QueryTrajectoryState.h>
+#include <control_msgs/QueryTrajectoryState.h>
 #include <control_msgs/JointTrajectoryControllerState.h>
 
 
@@ -140,7 +140,7 @@ public:
     sub_controller_state_ =
       nh_.subscribe("state", 1, &ControlHead::controllerStateCB, this);
     cli_query_traj_ =
-        nh_.serviceClient<pr2_controllers_msgs::QueryTrajectoryState>("query_state");
+        nh_.serviceClient<control_msgs::QueryTrajectoryState>("query_state");
 
     // Should only ever happen on first call... move to constructor?
     if(tree_.getNrOfJoints() == 0)
@@ -286,7 +286,7 @@ public:
     KDL::JntArray jnt_pos(joints), jnt_eff(joints);
     KDL::Jacobian jacobian(joints);
 
-    pr2_controllers_msgs::QueryTrajectoryState traj_state;
+    control_msgs::QueryTrajectoryState traj_state;
     traj_state.request.time = ros::Time::now() + ros::Duration(0.01);
     if (!cli_query_traj_.call(traj_state))
     {
