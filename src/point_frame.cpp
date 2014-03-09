@@ -36,29 +36,18 @@
 
 #include <vector>
 #include <boost/scoped_ptr.hpp>
-#include <boost/thread/condition.hpp>
 
 #include <actionlib/server/action_server.h>
-#include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PointStamped.h>
-#include <geometry_msgs/Twist.h>
 
 #include <kdl/chainfksolver.hpp>
-#include <kdl/chain.hpp>
 #include <kdl/chainjnttojacsolver.hpp>
-#include <kdl/frames.hpp>
-#include "kdl/chainfksolverpos_recursive.hpp"
-#include "kdl_parser/kdl_parser.hpp"
+#include <kdl/chainfksolverpos_recursive.hpp>
+#include <kdl_parser/kdl_parser.hpp>
 
-#include "tf_conversions/tf_kdl.h"
-#include <message_filters/subscriber.h>
-#include <tf/message_filter.h>
+#include <tf_conversions/tf_kdl.h>
 #include <tf/transform_datatypes.h>
 #include <tf/transform_listener.h>
-
-#include <sensor_msgs/JointState.h>
-#include <std_msgs/Float32MultiArray.h>
-#include <std_msgs/Int32.h>
 
 #include <urdf/model.h>
 
@@ -66,13 +55,6 @@
 #include <control_msgs/PointHeadAction.h>
 #include <control_msgs/QueryTrajectoryState.h>
 #include <control_msgs/JointTrajectoryControllerState.h>
-
-
-void printVector3(const char * label, tf::Vector3 v)
-{
-  printf("%s % 7.3f % 7.3f % 7.3f\n", label, v.x(), v.y(), v.z() );
-
-}
 
 class ControlHead
 {
