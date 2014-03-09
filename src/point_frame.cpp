@@ -36,6 +36,7 @@
 
 #include <vector>
 #include <boost/scoped_ptr.hpp>
+#include <cmath>
 
 #include <actionlib/server/action_server.h>
 #include <geometry_msgs/PointStamped.h>
@@ -62,8 +63,7 @@ private:
   typedef actionlib::ActionServer<control_msgs::PointHeadAction> PHAS;
   typedef PHAS::GoalHandle GoalHandle;
 
-  std::string node_name_;
-  std::string action_name_;
+  const std::string action_name_;
   std::string root_;
   std::string tip_;
   std::string pan_link_;
@@ -101,8 +101,7 @@ private:
 
 public:
   ControlHead(const ros::NodeHandle &node)
-      : node_name_(ros::this_node::getName())
-      , action_name_("point_head_action")
+      : action_name_("point_head_action")
       , nh_(node)
       , pnh_("~")
       , action_server_(nh_, action_name_.c_str(),
@@ -154,7 +153,8 @@ public:
     {
       for (int i = 0; i < 10; ++i)
       {
-        try {
+        try
+        {
           tfl_.getParent(pan_link_, ros::Time(), root_);
           break;
         }
@@ -187,9 +187,8 @@ public:
       bool ret1 = false;
       try
       {
-        std::string error_msg;
         ret1 = tfl_.waitForTransform(pan_link_, pointing_frame_, target.header.stamp,
-                                   ros::Duration(5.0), ros::Duration(0.01), &error_msg);
+                                     ros::Duration(5.0), ros::Duration(0.01));
 
         tf::vector3MsgToTF(gh.getGoal()->pointing_axis, pointing_axis_);
         if (pointing_axis_.length() < 0.1)
@@ -276,7 +275,7 @@ public:
     std::vector<urdf::JointLimits> limits_(joints);
 
     // Get initial joint positions and joint limits.
-    for (unsigned int i = 0; i < joints; i++)
+    for (unsigned int i = 0; i < joints; ++i)
     {
       joint_names_[i] = traj_state.response.name[i];
       limits_[i] = *(urdf_model_.joints_[joint_names_[i].c_str()]->limits);
@@ -315,14 +314,14 @@ public:
       KDL::Frame identity_kdl;
       KDL::Twist twist = diff(correction_kdl, identity_kdl);
       KDL::Wrench wrench_desi;
-      for (unsigned int i=0; i<6; i++)
+      for (unsigned int i=0; i<6; ++i)
         wrench_desi(i) = -1.0*twist(i);
 
       // Converts the "wrench" into "joint corrections" with a jacbobian-transpose
-      for (unsigned int i = 0; i < joints; i++)
+      for (unsigned int i = 0; i < joints; ++i)
       {
         jnt_eff(i) = 0;
-        for (unsigned int j=0; j<6; j++)
+        for (unsigned int j=0; j<6; ++j)
           jnt_eff(i) += (jacobian(j,i) * wrench_desi(j));
         jnt_pos(i) += jnt_eff(i);
       }
@@ -344,7 +343,7 @@ public:
     
     std::vector<double> q_goal(joints);
 
-    for (unsigned int i = 0; i < joints; i++)
+    for (unsigned int i = 0; i < joints; ++i)
     {
       jnt_pos(i) = std::max(limits_[i].lower, jnt_pos(i));
       jnt_pos(i) = std::min(limits_[i].upper, jnt_pos(i));
@@ -450,7 +449,6 @@ public:
   void controllerStateCB(const control_msgs::JointTrajectoryControllerStateConstPtr &msg)
   {
     last_controller_state_ = msg;
-    ros::Time now = ros::Time::now();
 
     if (!has_active_goal_)
       return;
@@ -459,7 +457,7 @@ public:
     try
     {
       KDL::JntArray jnt_pos(msg->joint_names.size());
-      for (unsigned int i = 0; i < msg->joint_names.size(); i++)
+      for (size_t i = 0; i < msg->joint_names.size(); ++i)
         jnt_pos(i) = msg->actual.positions[i];
 
       KDL::Frame pose;
