@@ -97,24 +97,25 @@ private:
   tf::TransformListener tfl_;
   urdf::Model urdf_model_;
 
-public:
+  control_msgs::JointTrajectoryControllerStateConstPtr last_controller_state_;
 
-  ControlHead(const ros::NodeHandle &node) :
-      node_name_(ros::this_node::getName())
+public:
+  ControlHead(const ros::NodeHandle &node)
+      : node_name_(ros::this_node::getName())
       , action_name_("point_head_action")
       , nh_(node)
       , pnh_("~")
       , action_server_(nh_, action_name_.c_str(),
-                         boost::bind(&ControlHead::goalCB, this, _1),
-                         boost::bind(&ControlHead::cancelCB, this, _1), false)
+                       boost::bind(&ControlHead::goalCB, this, _1),
+                       boost::bind(&ControlHead::cancelCB, this, _1), false)
       , has_active_goal_(false)
   {
     pnh_.param("pan_link", pan_link_, std::string("head_pan_link"));
     pnh_.param("default_pointing_frame", default_pointing_frame_, std::string("head_tilt_link"));
     pnh_.param("success_angle_threshold", success_angle_threshold_, 0.1);
 
-    if(pan_link_[0] == '/') pan_link_.erase(0, 1);
-    if(default_pointing_frame_[0] == '/') default_pointing_frame_.erase(0, 1);
+    if (pan_link_[0] == '/') pan_link_.erase(0, 1);
+    if (default_pointing_frame_[0] == '/') default_pointing_frame_.erase(0, 1);
 
     // Connects to the controller
     pub_controller_command_ =
@@ -124,26 +125,25 @@ public:
     cli_query_traj_ =
         nh_.serviceClient<control_msgs::QueryTrajectoryState>("query_state");
 
-    // Should only ever happen on first call... move to constructor?
-    if(tree_.getNrOfJoints() == 0)
+    if (tree_.getNrOfJoints() == 0)
     {
       std::string robot_desc_string;
       nh_.param("/robot_description", robot_desc_string, std::string());
       ROS_DEBUG("Reading tree from robot_description...");
-      if (!kdl_parser::treeFromString(robot_desc_string, tree_)){
+      if (!kdl_parser::treeFromString(robot_desc_string, tree_))
+      {
          ROS_ERROR("Failed to construct kdl tree");
          exit(-1);
       }
-      if (!urdf_model_.initString(robot_desc_string)){
+      if (!urdf_model_.initString(robot_desc_string))
+      {
         ROS_ERROR("Failed to parse urdf string for urdf::Model.");
         exit(-2);
       }
     }
 
     ROS_DEBUG("Tree has %d joints and %d segments.", tree_.getNrOfJoints(), tree_.getNrOfSegments());
-
     action_server_.start();
-
     watchdog_timer_ = nh_.createTimer(ros::Duration(1.0), &ControlHead::watchdog, this);
   }
 
@@ -168,14 +168,14 @@ public:
         return;
       }
     }
-    if(root_[0] == '/') root_.erase(0, 1);
+    if (root_[0] == '/') root_.erase(0, 1);
 
     ROS_DEBUG("Got point head goal!");
 
     // Process pointing frame and axis
     const geometry_msgs::PointStamped &target = gh.getGoal()->target;
     pointing_frame_ = gh.getGoal()->pointing_frame;
-    if(pointing_frame_.length() == 0)
+    if (pointing_frame_.length() == 0)
     {
       ROS_WARN("Pointing frame not specified, using %s [1, 0, 0] by default.", default_pointing_frame_.c_str());
       pointing_frame_ = default_pointing_frame_;
@@ -183,7 +183,7 @@ public:
     }
     else
     {
-      if(pointing_frame_[0] == '/') pointing_frame_.erase(0, 1);
+      if (pointing_frame_[0] == '/') pointing_frame_.erase(0, 1);
       bool ret1 = false;
       try
       {
@@ -192,7 +192,7 @@ public:
                                    ros::Duration(5.0), ros::Duration(0.01), &error_msg);
 
         tf::vector3MsgToTF(gh.getGoal()->pointing_axis, pointing_axis_);
-        if(pointing_axis_.length() < 0.1)
+        if (pointing_axis_.length() < 0.1)
         {
           size_t found = pointing_frame_.find("optical_frame");
           if (found != std::string::npos)
@@ -211,7 +211,7 @@ public:
           pointing_axis_.normalize();
         }
       }
-      catch(const tf::TransformException &ex)
+      catch (const tf::TransformException &ex)
       {
         ROS_ERROR("Transform failure (%d): %s", ret1, ex.what());
         gh.setRejected();
@@ -231,17 +231,17 @@ public:
       tfl_.transformPoint(root_.c_str(), target, target_in_root_msg );
       tf::pointMsgToTF(target_in_root_msg.point, target_in_root_);
     }
-    catch(const tf::TransformException &ex)
+    catch (const tf::TransformException &ex)
     {
       ROS_ERROR("Transform failure (%d): %s", ret1, ex.what());
       gh.setRejected();
       return;
     }
 
-    if( tip_.compare(pointing_frame_) != 0 )
+    if (tip_.compare(pointing_frame_) != 0)
     {
       bool success = tree_.getChain(root_.c_str(), pointing_frame_.c_str(), chain_);
-      if( !success )
+      if (!success)
       {
         ROS_ERROR("Couldn't create chain from %s to %s.", root_.c_str(), pointing_frame_.c_str());
         gh.setRejected();
@@ -254,16 +254,7 @@ public:
       joint_names_.resize(chain_.getNrOfJoints());
     }
 
-    unsigned int joints = chain_.getNrOfJoints();
-
-//    int segments = chain_.getNrOfSegments();
-//    ROS_INFO("Parsed urdf from %s to %s and found %d joints and %d segments.", root_.c_str(), pointing_frame_.c_str(), joints, segments);
-//    for(int i = 0; i < segments; i++)
-//    {
-//      KDL::Segment segment = chain_.getSegment(i);
-//      ROS_INFO("Segment %d, %s: joint %s type %s",
-//               i, segment.getName().c_str(), segment.getJoint().getName().c_str(), segment.getJoint().getTypeName().c_str() );
-//    }
+    const unsigned int joints = chain_.getNrOfJoints();
 
     KDL::JntArray jnt_pos(joints), jnt_eff(joints);
     KDL::Jacobian jacobian(joints);
@@ -276,7 +267,7 @@ public:
       gh.setRejected();
       return;
     }
-    if(traj_state.response.name.size() != joints)
+    if (traj_state.response.name.size() != joints)
     {
       ROS_ERROR("Number of joints mismatch: urdf chain vs. trajectory controller state.");
       gh.setRejected();
@@ -285,12 +276,11 @@ public:
     std::vector<urdf::JointLimits> limits_(joints);
 
     // Get initial joint positions and joint limits.
-    for(unsigned int i = 0; i < joints; i++)
+    for (unsigned int i = 0; i < joints; i++)
     {
       joint_names_[i] = traj_state.response.name[i];
       limits_[i] = *(urdf_model_.joints_[joint_names_[i].c_str()]->limits);
       ROS_DEBUG("Joint %d %s: %f, limits: %f %f", i, traj_state.response.name[i].c_str(), traj_state.response.position[i], limits_[i].lower, limits_[i].upper);
-      //jnt_pos(i) = traj_state.response.position[i];
       jnt_pos(i) = 0;
     }
 
@@ -298,7 +288,7 @@ public:
     int limit_flips = 0;
     float correction_angle = 2*M_PI;
     float correction_delta = 2*M_PI;
-    while( ros::ok() && fabs(correction_delta) > 0.001)
+    while (ros::ok() && fabs(correction_delta) > 0.001)
     {
       //get the pose and jacobian for the current joint positions
       KDL::Frame pose;
@@ -315,9 +305,8 @@ public:
       correction_angle = current_in_frame.angle(axis_in_frame);
       correction_delta = correction_angle - prev_correction;
       ROS_DEBUG("At step %d, joint poses are %.4f and %.4f, angle error is %f", count, jnt_pos(0), jnt_pos(1), correction_angle);
-      if(correction_angle < 0.5*success_angle_threshold_) break;
+      if (correction_angle < 0.5*success_angle_threshold_) break;
       tf::Vector3 correction_axis = frame_in_root.getBasis()*(axis_in_frame.cross(current_in_frame).normalized());
-      //printVector3("correction_axis in root:", correction_axis);
       tf::Transform correction_tf(tf::Quaternion(correction_axis, 0.5*correction_angle), tf::Vector3(0,0,0));
       KDL::Frame correction_kdl;
       tf::transformTFToKDL(correction_tf, correction_kdl);
@@ -337,16 +326,16 @@ public:
           jnt_eff(i) += (jacobian(j,i) * wrench_desi(j));
         jnt_pos(i) += jnt_eff(i);
       }
-
+      // Move both joins to a position between the upper and lower joint limits
       jnt_pos(0) = std::max(limits_[0].lower, jnt_pos(0));
       jnt_pos(0) = std::min(limits_[0].upper, jnt_pos(0));
-
       jnt_pos(1) = std::max(limits_[1].lower, jnt_pos(1));
       jnt_pos(1) = std::min(limits_[1].upper, jnt_pos(1));
 
       count++;
 
-      if(limit_flips > 1){
+      if (limit_flips > 1)
+      {
         ROS_ERROR("Goal is out of joint limits, trying to point there anyway... \n");
         break;
       }
@@ -355,7 +344,7 @@ public:
     
     std::vector<double> q_goal(joints);
 
-    for(unsigned int i = 0; i < joints; i++)
+    for (unsigned int i = 0; i < joints; i++)
     {
       jnt_pos(i) = std::max(limits_[i].lower, jnt_pos(i));
       jnt_pos(i) = std::min(limits_[i].upper, jnt_pos(i));
@@ -373,7 +362,6 @@ public:
     active_goal_ = gh;
     has_active_goal_ = true;
 
-
     // Computes the duration of the movement.
     ros::Duration min_duration(0.01);
 
@@ -390,7 +378,6 @@ public:
       if (limit_from_velocity > min_duration)
         min_duration = limit_from_velocity;
     }
-
 
     // Computes the command to send to the trajectory controller.
     trajectory_msgs::JointTrajectory traj;
@@ -410,11 +397,10 @@ public:
 
     pub_controller_command_.publish(traj);
   }
-
   
   void watchdog(const ros::TimerEvent &e)
   {
-    ros::Time now = ros::Time::now();
+    const ros::Time now = ros::Time::now();
 
     // Aborts the active goal if the controller does not appear to be active.
     if (has_active_goal_)
@@ -446,7 +432,6 @@ public:
     }
   }
 
-
   void cancelCB(GoalHandle gh)
   {
     if (active_goal_ == gh)
@@ -462,7 +447,6 @@ public:
     }
   }
 
-  control_msgs::JointTrajectoryControllerStateConstPtr last_controller_state_;
   void controllerStateCB(const control_msgs::JointTrajectoryControllerStateConstPtr &msg)
   {
     last_controller_state_ = msg;
@@ -475,7 +459,7 @@ public:
     try
     {
       KDL::JntArray jnt_pos(msg->joint_names.size());
-      for(unsigned int i = 0; i < msg->joint_names.size(); i++)
+      for (unsigned int i = 0; i < msg->joint_names.size(); i++)
         jnt_pos(i) = msg->actual.positions[i];
 
       KDL::Frame pose;
@@ -500,13 +484,11 @@ public:
         has_active_goal_ = false;
       }
     }
-    catch(const tf::TransformException &ex)
+    catch (const tf::TransformException &ex)
     {
       ROS_ERROR("Could not transform: %s", ex.what());
     }
   }
-
-
 };
 
 int main(int argc, char** argv)
@@ -517,4 +499,3 @@ int main(int argc, char** argv)
   ros::spin();
   return 0;
 }
-
