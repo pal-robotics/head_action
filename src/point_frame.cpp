@@ -356,9 +356,8 @@ public:
         jnt_pos(i) += jnt_eff(i);
       }
 
-      // account for pan_link joint limit in back.
-      if(jnt_pos(0) < limits_[0].lower && limit_flips++ == 0){ jnt_pos(0) += 1.5*M_PI; }
-      if(jnt_pos(0) > limits_[0].upper && limit_flips++ == 0){ jnt_pos(0) -= 1.5*M_PI; }
+      jnt_pos(0) = std::max(limits_[0].lower, jnt_pos(0));
+      jnt_pos(0) = std::min(limits_[0].upper, jnt_pos(0));
 
       jnt_pos(1) = std::max(limits_[1].lower, jnt_pos(1));
       jnt_pos(1) = std::min(limits_[1].upper, jnt_pos(1));
