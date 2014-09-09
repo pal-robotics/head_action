@@ -7,14 +7,13 @@ find_package(catkin REQUIRED COMPONENTS
    geometry_msgs 
    trajectory_msgs 
    sensor_msgs 
-   pr2_controllers_msgs 
    roscpp 
-   message_filters 
    tf 
    tf_conversions 
    actionlib 
    kdl_parser
-   sensor_msgs)
+   sensor_msgs
+   control_msgs)
 
 find_package(orocos_kdl REQUIRED)
 
@@ -22,7 +21,9 @@ find_package(Boost REQUIRED COMPONENTS thread)
 include_directories(${Boost_INCLUDE_DIRS}
    ${orocos_kdl_INCLUDE_DIRS} ${catkin_INCLUDE_DIRS})
 
-catkin_package()
+catkin_package(
+  CATKIN_DEPENDS trajectory_msgs sensor_msgs control_msgs geometry_msgs
+)
 
 add_executable(head_action src/point_frame.cpp)
 target_link_libraries(head_action ${Boost_LIBRARIES} 

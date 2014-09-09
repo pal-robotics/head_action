@@ -1,15 +1,14 @@
 <package>
   <name>head_action</name>
-  <version>1.10.7</version>
-  <description>The PR2 head action is a node that provides an action interface for
-  pointing the head of the PR2.  It passes trajectory goals to the
+  <version>0.0.0</version>
+  <description>The head action is a node that provides an action interface for
+  pointing the head of the configured robot. It passes trajectory goals to the
   controller, and reports success when they have finished executing.</description>
-  <maintainer email="ahendrix@willowgarage.com">Austin Hendrix</maintainer>
+  <maintainer email="bence.magyar@pal-robotics.com">Bence Magyar</maintainer>
 
   <license>BSD</license>
 
   <url type="website">http://ros.org/wiki/head_action</url>
-  <!-- <url type="bugtracker"></url> -->
 
   <author>Stuart Glaser</author>
 
@@ -18,9 +17,7 @@
   <build_depend>geometry_msgs</build_depend>
   <build_depend>trajectory_msgs</build_depend>
   <build_depend>sensor_msgs</build_depend>
-  <build_depend>pr2_controllers_msgs</build_depend>
   <build_depend>roscpp</build_depend>
-  <build_depend>message_filters</build_depend>
   <build_depend>tf</build_depend>
   <build_depend>tf_conversions</build_depend>
   <build_depend>actionlib</build_depend>
@@ -31,9 +28,7 @@
   <run_depend>geometry_msgs</run_depend>
   <run_depend>trajectory_msgs</run_depend>
   <run_depend>sensor_msgs</run_depend>
-  <run_depend>pr2_controllers_msgs</run_depend>
   <run_depend>roscpp</run_depend>
-  <run_depend>message_filters</run_depend>
   <run_depend>tf</run_depend>
   <run_depend>tf_conversions</run_depend>
   <run_depend>actionlib</run_depend>
