@@ -1,6 +1,7 @@
 /*********************************************************************
  * Software License Agreement (BSD License)
  *
+ *  Copyright (c) 2014, PAL Robotics, S.L.
  *  Copyright (c) 2008, Willow Garage, Inc.
  *  All rights reserved.
  *
@@ -14,7 +15,7 @@
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
  *     with the distribution.
- *   * Neither the name of the Willow Garage nor the names of its
+ *   * Neither the name of PAL Robotics, S.L. nor the names of its
  *     contributors may be used to endorse or promote products derived
  *     from this software without specific prior written permission.
  *
@@ -33,15 +34,13 @@
  *********************************************************************/
 
 #include <ros/ros.h>
-
-#include <vector>
 #include <boost/scoped_ptr.hpp>
 #include <cmath>
 
 #include <actionlib/server/action_server.h>
-#include <geometry_msgs/PointStamped.h>
 
 #include <kdl/chainfksolver.hpp>
+#include <kdl/chain.hpp>
 #include <kdl/chainjnttojacsolver.hpp>
 #include <kdl/chainfksolverpos_recursive.hpp>
 #include <kdl_parser/kdl_parser.hpp>
@@ -75,21 +74,19 @@ private:
   ros::NodeHandle nh_, pnh_;
   ros::Publisher pub_controller_command_;
   ros::Subscriber sub_controller_state_;
-  ros::Subscriber command_sub_;
   ros::ServiceClient cli_query_traj_;
   ros::Timer watchdog_timer_;
 
   PHAS action_server_;
   bool has_active_goal_;
   GoalHandle active_goal_;
-  tf::Stamped<tf::Point> target_in_pan_;
-  std::string pan_parent_;
-  double success_angle_threshold_;
+  double success_angle_threshold_; //one of the stop conditions in the iterative solver
 
-  geometry_msgs::PointStamped target_;
   KDL::Tree tree_;
   KDL::Chain chain_;
   tf::Point target_in_root_;
+  tf::Vector3 desired_pointing_axis_in_frame_;
+  double goal_error_; //this may be larger than success_angle_threshold_
 
   boost::scoped_ptr<KDL::ChainFkSolverPos> pose_solver_;
   boost::scoped_ptr<KDL::ChainJntToJacSolver> jac_solver_;
@@ -229,6 +226,7 @@ public:
       geometry_msgs::PointStamped target_in_root_msg;
       tfl_.transformPoint(root_.c_str(), target, target_in_root_msg );
       tf::pointMsgToTF(target_in_root_msg.point, target_in_root_);
+      ROS_DEBUG_STREAM("Target point in base frame: (" << target_in_root_[0] << ", " << target_in_root_[1] << ", " << target_in_root_[2] << ")");
     }
     catch (const tf::TransformException &ex)
     {
@@ -287,7 +285,10 @@ public:
     int limit_flips = 0;
     float correction_angle = 2*M_PI;
     float correction_delta = 2*M_PI;
-    while (ros::ok() && fabs(correction_delta) > 0.001)
+    const int MAX_ITERATIONS = 15;
+    while( ros::ok() &&
+           fabs(correction_delta) > 0.001 &&
+           count < MAX_ITERATIONS) //limit the iterations
     {
       //get the pose and jacobian for the current joint positions
       KDL::Frame pose;
@@ -303,8 +304,14 @@ public:
       float prev_correction = correction_angle;
       correction_angle = current_in_frame.angle(axis_in_frame);
       correction_delta = correction_angle - prev_correction;
-      ROS_DEBUG("At step %d, joint poses are %.4f and %.4f, angle error is %f", count, jnt_pos(0), jnt_pos(1), correction_angle);
-      if (correction_angle < 0.5*success_angle_threshold_) break;
+
+      ROS_DEBUG("At step %d, joint poses are %.4f and %.4f, angle error is %f radians", count, jnt_pos(0), jnt_pos(1), correction_angle);
+      goal_error_ = correction_angle; //expected error after this iteration
+      if ( correction_angle < 0.5*success_angle_threshold_ )
+      {
+        ROS_DEBUG_STREAM("Accepting solution as estimated error is: " << correction_angle*180.0/M_PI << "degrees and stopping condition is half of " << success_angle_threshold_*180.0/M_PI);
+        break;
+      }
       tf::Vector3 correction_axis = frame_in_root.getBasis()*(axis_in_frame.cross(current_in_frame).normalized());
       tf::Transform correction_tf(tf::Quaternion(correction_axis, 0.5*correction_angle), tf::Vector3(0,0,0));
       KDL::Frame correction_kdl;
@@ -325,6 +332,11 @@ public:
           jnt_eff(i) += (jacobian(j,i) * wrench_desi(j));
         jnt_pos(i) += jnt_eff(i);
       }
+
+     // account for pan_link joint limit in back.
+     // if(jnt_pos(0) < limits_[0].lower && limit_flips++ == 0){ jnt_pos(0) += 1.5*M_PI; }
+     // if(jnt_pos(0) > limits_[0].upper && limit_flips++ == 0){ jnt_pos(0) -= 1.5*M_PI; }
+
       // Move both joins to a position between the upper and lower joint limits
       jnt_pos(0) = std::max(limits_[0].lower, jnt_pos(0));
       jnt_pos(0) = std::min(limits_[0].upper, jnt_pos(0));
@@ -339,17 +351,46 @@ public:
         break;
       }
     }
-    ROS_DEBUG("Iterative solver took %d steps", count);
-    
+    ROS_DEBUG_STREAM("Iterative solver took " << count << " steps. Expected error: " << correction_angle << " radians");
+    if ( count == MAX_ITERATIONS )
+      ROS_WARN("Aborted because maximum number of iterations was reached");    
+
     std::vector<double> q_goal(joints);
 
-    for (unsigned int i = 0; i < joints; ++i)
+    //saturate joint positions considering the joint limits
+    for(unsigned int i = 0; i < joints; i++)
     {
       jnt_pos(i) = std::max(limits_[i].lower, jnt_pos(i));
       jnt_pos(i) = std::min(limits_[i].upper, jnt_pos(i));
       q_goal[i] = jnt_pos(i);
       ROS_DEBUG("Joint %d %s: %f", i, joint_names_[i].c_str(), jnt_pos(i));
     }
+
+    //re-compute desired pointing axis from desired joint positions 
+    //(to take the case in which joint limits have been enforced into account)
+    KDL::Frame pose;
+    pose_solver_->JntToCart(jnt_pos, pose);
+
+    tf::Transform frame_in_root;
+    tf::poseKDLToTF(pose, frame_in_root);
+    tf::Vector3 target_from_frame = target_in_root_ - frame_in_root.getOrigin();
+    target_from_frame.normalize();
+    ROS_DEBUG_STREAM("BEFORE applying joint limits => desired pointing axis = (" <<
+                     pointing_axis_[0] << ", " <<
+                     pointing_axis_[1] << ", " <<
+                     pointing_axis_[2] << ")");
+    desired_pointing_axis_in_frame_ = frame_in_root.getBasis().inverse()*target_from_frame;
+    ROS_DEBUG_STREAM("AFTER applying joint limits => desired pointing axis = (" <<
+                     desired_pointing_axis_in_frame_[0] << ", " <<
+                     desired_pointing_axis_in_frame_[1] << ", " <<
+                     desired_pointing_axis_in_frame_[2] << ")");
+
+    //the goal will end when the angular error of the pointing axis
+    //is lower than goal_error_. This variable is assigned with the maximum
+    //between the ros param success_angle_threshold_ and the estimated error
+    //from the iterative solver last iteration, i.e. goal_error_ current value
+    goal_error_ = std::max(goal_error_, success_angle_threshold_);
+    ROS_DEBUG_STREAM("the goal will terminate when error is: " << goal_error_*180.0/M_PI << " degrees => " << goal_error_ << " radians");
 
     if (has_active_goal_)
     {
@@ -370,10 +411,16 @@ public:
     // Determines if we need to increase the duration of the movement in order to enforce a maximum velocity.
     if (gh.getGoal()->max_velocity > 0)
     {
-      // Very approximate velocity limiting.
-      double dist = sqrt(pow(q_goal[0] - traj_state.response.position[0], 2) +
-                         pow(q_goal[1] - traj_state.response.position[1], 2));
-      ros::Duration limit_from_velocity(dist / gh.getGoal()->max_velocity);
+      // compute the largest required rotation among all the joints
+      double largest_rotation = 0;
+      for(unsigned int i = 0; i < joints; i++)
+      {
+        double required_rotation = fabs(q_goal[i] - traj_state.response.position[i]);
+        if ( required_rotation > largest_rotation )
+          largest_rotation = required_rotation;
+      }
+
+      ros::Duration limit_from_velocity(largest_rotation / gh.getGoal()->max_velocity);
       if (limit_from_velocity > min_duration)
         min_duration = limit_from_velocity;
     }
@@ -385,14 +432,12 @@ public:
     traj.joint_names.push_back(traj_state.response.name[0]);
     traj.joint_names.push_back(traj_state.response.name[1]);
 
-    traj.points.resize(2);
-    traj.points[0].positions = traj_state.response.position;
-    traj.points[0].velocities = traj_state.response.velocity;
-    traj.points[0].time_from_start = ros::Duration(0.0);
-    traj.points[1].positions = q_goal;
-    traj.points[1].velocities.push_back(0);
-    traj.points[1].velocities.push_back(0);
-    traj.points[1].time_from_start = ros::Duration(min_duration);
+    traj.points.resize(1);
+    traj.points[0].positions = q_goal;
+    traj.points[0].velocities.push_back(0);
+    traj.points[0].velocities.push_back(0);
+    traj.points[0].time_from_start = ros::Duration(min_duration);
+
 
     pub_controller_command_.publish(traj);
   }
@@ -449,16 +494,21 @@ public:
   void controllerStateCB(const control_msgs::JointTrajectoryControllerStateConstPtr &msg)
   {
     last_controller_state_ = msg;
+    const ros::Time now = ros::Time::now();
 
     if (!has_active_goal_)
       return;
 
     //! \todo Support frames that are not the pan link itself
     try
-    {
+    {     
+      //now compute the current pointing axis from actual joint positions       
       KDL::JntArray jnt_pos(msg->joint_names.size());
       for (size_t i = 0; i < msg->joint_names.size(); ++i)
+      {
         jnt_pos(i) = msg->actual.positions[i];
+        ROS_DEBUG_STREAM("current state of joint " << i << ": " << jnt_pos(i));
+      }
 
       KDL::Frame pose;
       pose_solver_->JntToCart(jnt_pos, pose);
@@ -473,11 +523,17 @@ public:
       tf::Vector3 current_in_frame = frame_in_root.getBasis().inverse()*target_from_frame;
 
       control_msgs::PointHeadFeedback feedback;
-      feedback.pointing_angle_error = current_in_frame.angle(axis_in_frame);
+      feedback.pointing_angle_error = current_in_frame.angle(desired_pointing_axis_in_frame_);
+
+      ROS_DEBUG_STREAM("current error is: " << feedback.pointing_angle_error << " radians");
+
       active_goal_.publishFeedback(feedback);
 
-      if (feedback.pointing_angle_error < success_angle_threshold_)
-      {
+	  //the computed solution by the iterative solver can provide larger errors
+	  //due to MAX_ITERATIONS and correction_delta stop conditions
+      if (feedback.pointing_angle_error <= goal_error_)
+      {        
+        ROS_DEBUG_STREAM("goal succeeded with error: " << feedback.pointing_angle_error << " radians");
         active_goal_.setSucceeded();
         has_active_goal_ = false;
       }
