@@ -33,5 +33,5 @@ add_dependencies(head_action ${catkin_EXPORTED_TARGETS})
 install(TARGETS head_action
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
-install(FILES head_action.launch
+install(DIRECTORY launch
    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
