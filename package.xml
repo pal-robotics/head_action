@@ -1,6 +1,6 @@
 <package>
   <name>head_action</name>
-  <version>0.0.0</version>
+  <version>0.0.1</version>
   <description>The head action is a node that provides an action interface for
   pointing the head of the configured robot. It passes trajectory goals to the
   controller, and reports success when they have finished executing.</description>
