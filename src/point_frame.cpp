@@ -124,7 +124,17 @@ public:
     if (tree_.getNrOfJoints() == 0)
     {
       std::string robot_desc_string;
-      nh_.param("/robot_description", robot_desc_string, std::string());
+      std::string robot_desc_key;
+      if(nh_.searchParam("robot_description", robot_desc_key))
+      {
+        ROS_INFO_STREAM("Load description from: " << robot_desc_key);
+        nh_.param(robot_desc_key, robot_desc_string, std::string());
+      }
+      else
+      {
+        nh_.param("/robot_description", robot_desc_string, std::string());
+      }
+      
       ROS_DEBUG("Reading tree from robot_description...");
       if (!kdl_parser::treeFromString(robot_desc_string, tree_))
       {
